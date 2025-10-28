@@ -12,6 +12,7 @@ import dev.brahmkshatriya.echo.common.models.Feed.Companion.pagedDataOfFirst
 import dev.brahmkshatriya.echo.common.models.Shelf
 import dev.brahmkshatriya.echo.common.models.Track
 import dev.brahmkshatriya.echo.common.models.User
+import dev.brahmkshatriya.echo.extension.model.ImageSize
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Dispatchers
@@ -28,9 +29,15 @@ import kotlin.system.measureTimeMillis
 @OptIn(DelicateCoroutinesApi::class)
 @ExperimentalCoroutinesApi
 class ExtensionUnitTest {
-    private val extension: ExtensionClient = TestExtension()
-    private val searchQuery = "Skrillex"
-    private val user = User("", "Test User")
+    private val extension: ExtensionClient = TidalExtension()
+    private val searchQuery = "Zomboy Born To Survive"
+
+    private val user = User(
+        "", "Test User", extras = mapOf(
+            "refreshToken" to ""
+        )
+    )
+//    private val user: User? = null
 
     @Test
     fun testEmptySearch() = testIn("Testing Empty Search") {
@@ -47,7 +54,10 @@ class ExtensionUnitTest {
         println("Searching  : $searchQuery")
         val feed = extension.loadSearchFeed(searchQuery)
         println("Tabs : ${feed.tabs}")
-        feed.pagedDataOfFirst().loadPage(null).data.forEach {
+        val paged = feed.getPagedData(feed.tabs[1]).pagedData
+        val next = paged.loadPage(null)
+        println(next.data[0])
+        paged.loadPage(next.continuation).data.forEach {
             println(it)
         }
     }
@@ -91,13 +101,14 @@ class ExtensionUnitTest {
     @Test
     fun testTrackStream() = testIn("Testing Track Stream") {
         if (extension !is TrackClient) error("TrackClient is not implemented")
-        val search = searchTrack()
-        measureTimeMillis {
-            val track = extension.loadTrack(search, false)
-            val streamable = track.servers.firstOrNull() ?: error("Track does not streamable")
-            val stream = extension.loadStreamableMedia(streamable, false)
-            println(stream)
-        }.also { println("time : $it") }
+        val search = Track("134858521", "")
+        val track = extension.loadTrack(search, false)
+        track.streamables.sortedBy { it.quality }.forEach { streamable ->
+            measureTimeMillis {
+                val stream = extension.loadStreamableMedia(streamable, false)
+                println(stream)
+            }.also { println("time : $it") }
+        }
     }
 
     @Test
@@ -121,6 +132,22 @@ class ExtensionUnitTest {
         else mediaItems.forEach {
             println(it)
         }
+    }
+
+    @Test
+    fun testArtist() = testIn("Artist") {
+        val api = (extension as? TidalExtension)?.api ?: error("HiFiApi not found")
+        val userID = 205961199
+        val artistId = api.users(userID.toString()).artistID!!.toString()
+        val artistItem = api.artist(artistId).item!!.data!!
+        val user = User(
+            id = artistId,
+            name = artistItem.name ?: "Tidal User",
+            subtitle = artistItem.handle,
+            cover = artistItem.picture?.toImage(ImageSize.MEDIUM, false),
+//            extras = mapOf("refreshToken" to (json.refreshToken!!))
+        )
+        println(user)
     }
 
     @Test
