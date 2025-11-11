@@ -3,8 +3,7 @@ package dev.brahmkshatriya.echo.extension
 import dev.brahmkshatriya.echo.common.helpers.ContinuationCallback.Companion.await
 import dev.brahmkshatriya.echo.extension.TidalApi.Companion.JSON
 import dev.brahmkshatriya.echo.extension.model.SearchResponse
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.OkHttpClient
@@ -12,7 +11,7 @@ import okhttp3.Request
 
 class HiFiApi {
     val client = OkHttpClient()
-    var api = "https://hifi.401658.xyz"
+    var api = "https://wolf.qqdl.site"
 
     suspend fun call(path: String): String {
         val res = client.newCall(Request.Builder().url("$api/$path").build()).await()
@@ -46,12 +45,13 @@ class HiFiApi {
     }
 
     enum class DashQuality(val quality: Int) {
-        HI_RES(4), HI_RES_LOSSLESS(5)
+//        HI_RES(4), HI_RES_LOSSLESS(5)
     }
 
     suspend fun stream(trackId: String, quality: String): String {
-        val res = call("dash/?id=$trackId&quality=$quality")
-        return JSON.decodeFromString<JsonObject>(res).jsonObject["urls"]!!.jsonArray.random().jsonPrimitive.content
+        val res = call("track/?id=$trackId&quality=$quality")
+        return JSON.decodeFromString<JsonArray>(res)[2]
+            .jsonObject["OriginalTrackUrl"]!!.jsonPrimitive.content
     }
 
     fun streamDash(trackId: String, quality: String) = "$api/dash/?id=$trackId&quality=${quality}"

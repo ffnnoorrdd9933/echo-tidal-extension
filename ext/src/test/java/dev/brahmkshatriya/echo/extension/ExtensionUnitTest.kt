@@ -32,12 +32,12 @@ class ExtensionUnitTest {
     private val extension: ExtensionClient = TidalExtension()
     private val searchQuery = "Zomboy Born To Survive"
 
-    private val user = User(
-        "", "Test User", extras = mapOf(
-            "refreshToken" to ""
-        )
-    )
-//    private val user: User? = null
+//    private val user = User(
+//        "", "Test User", extras = mapOf(
+//            "refreshToken" to ""
+//        )
+//    )
+    private val user: User? = null
 
     @Test
     fun testEmptySearch() = testIn("Testing Empty Search") {
