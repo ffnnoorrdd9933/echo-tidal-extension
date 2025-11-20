@@ -2,7 +2,6 @@ package dev.brahmkshatriya.echo.extension.model
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
 
@@ -99,7 +98,7 @@ data class Item(
     @SerialName("imageId")
     val imageID: String? = null,
 
-    val curators: JsonArray? = null,
+    val curators: List<Creator>? = null,
     val contentBehavior: String? = null,
     val sharingLevel: String? = null,
     val status: String? = null,
@@ -112,7 +111,56 @@ data class Item(
 
     val icon: String? = null,
     val apiPath: String? = null,
+
+    val item: Item? = null,
+
+    val subTitle: String? = null,
+    val graphic: Graphic? = null,
+    val images: Images? = null,
+    val sharingImages: JsonElement? = null,
+    val mixType: String? = null,
+    val mixNumber: JsonElement? = null,
+    val master: Boolean? = null,
+    val titleColor: String? = null,
+    val subTitleColor: String? = null,
+    val descriptionColor: JsonElement? = null,
+    val detailImages: Images? = null,
+    val shortSubtitle: String? = null
 ) {
+
+    @Serializable
+    data class Images (
+        @SerialName("SMALL")
+        val small: ImageDetails? = null,
+
+        @SerialName("MEDIUM")
+        val medium: ImageDetails? = null,
+
+        @SerialName("LARGE")
+        val large: ImageDetails? = null
+    )
+
+    @Serializable
+    data class ImageDetails (
+        val width: Long? = null,
+        val height: Long? = null,
+        val url: String? = null
+    )
+
+    @Serializable
+    data class Graphic (
+        val type: String? = null,
+        val text: String? = null,
+        val images: List<Image>? = null
+    )
+
+    @Serializable
+    data class Image (
+        val id: String? = null,
+        val vibrantColor: String? = null,
+        val type: String? = null
+    )
+
     @Serializable
     data class Artist(
         val id: Long? = null,

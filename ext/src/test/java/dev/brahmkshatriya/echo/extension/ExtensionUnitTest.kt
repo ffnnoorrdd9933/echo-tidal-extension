@@ -138,8 +138,8 @@ class ExtensionUnitTest {
     fun testArtist() = testIn("Artist") {
         val api = (extension as? TidalExtension)?.api ?: error("HiFiApi not found")
         val userID = 205961199
-        val artistId = api.users(userID.toString()).artistID!!.toString()
-        val artistItem = api.artist(artistId).item!!.data!!
+        val artistId = api.users(userID.toString()).value.artistID!!.toString()
+        val artistItem = api.artist(artistId).value.item!!.data!!
         val user = User(
             id = artistId,
             name = artistItem.name ?: "Tidal User",

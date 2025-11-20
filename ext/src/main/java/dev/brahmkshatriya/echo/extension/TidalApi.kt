@@ -4,13 +4,13 @@ import dev.brahmkshatriya.echo.common.helpers.ContinuationCallback.Companion.awa
 import dev.brahmkshatriya.echo.extension.model.ArtistResponse
 import dev.brahmkshatriya.echo.extension.model.Item
 import dev.brahmkshatriya.echo.extension.model.Page
-import dev.brahmkshatriya.echo.extension.model.PagesResponse
+import dev.brahmkshatriya.echo.extension.model.PlaylistResponse
 import dev.brahmkshatriya.echo.extension.model.SearchResponse
 import dev.brahmkshatriya.echo.extension.model.TokenResponse
 import dev.brahmkshatriya.echo.extension.model.UserResponse
+import dev.brahmkshatriya.echo.extension.model.V1PagesResponse
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.serialization.json.Json
 import okhttp3.FormBody
 import okhttp3.HttpUrl
 import okhttp3.OkHttpClient
@@ -20,7 +20,6 @@ class TidalApi {
     companion object {
         const val DEVICE_TYPE = "BROWSER"
         const val PLATFORM = "WEB"
-        val JSON = Json { ignoreUnknownKeys = true }
     }
 
     var locale = "en_US"
@@ -95,7 +94,7 @@ class TidalApi {
                 .post(formBody.build())
                 .build()
         )
-        val tokenResponse = JSON.decodeFromString<TokenResponse>(res)
+        val tokenResponse = Json.decode<TokenResponse>(res).value
         expiresIn = System.currentTimeMillis() + (tokenResponse.expiresIn!! * 1000)
         return tokenResponse.accessToken!!
     }
@@ -103,21 +102,21 @@ class TidalApi {
     suspend fun authReq(path: String, params: Map<String, String> = mapOf()) = request(path, params)
         .header("Authorization", "Bearer ${accessToken()}")
 
-    suspend fun home(cursor: String? = null): Page {
+    suspend fun home(cursor: String? = null): Json.Decoded<Page> {
         val req = if (refreshToken != null) authReq("v2/home/feed/static")
         else request(
             "v2/home/feed/static",
             if (cursor != null) mapOf("cursor" to cursor) else mapOf()
         )
         val res = call(req.build())
-        return JSON.decodeFromString(res)
+        return Json.decode(res)
     }
 
     suspend fun search(
         query: String,
         types: String = "ARTISTS,ALBUMS,TRACKS,VIDEOS,PLAYLISTS,UPLOADS",
         offset: String = "0",
-    ): SearchResponse {
+    ): Json.Decoded<SearchResponse> {
         if (refreshToken == null) throw IllegalStateException("Refresh Token is required")
         val res = call(
             authReq(
@@ -133,26 +132,67 @@ class TidalApi {
                 )
             ).build()
         )
-        return JSON.decodeFromString(res)
+        return Json.decode(res)
     }
 
-    suspend fun track(id: String): Item {
+    suspend fun track(id: String): Json.Decoded<Item> {
         val res = call(authReq("v1/tracks/$id").build())
-        return JSON.decodeFromString(res)
+        return Json.decode(res)
     }
 
-    suspend fun users(id:String) : UserResponse {
+    suspend fun trackRecommendations(
+        id: String,
+        offset: String = "0",
+    ): Json.Decoded<PlaylistResponse.Items> {
+        val res = call(
+            authReq(
+                "v1/tracks/$id/recommendations",
+                mapOf("limit" to "50", "offset" to offset)
+            ).build()
+        )
+        return Json.decode(res)
+    }
+
+    suspend fun users(id: String): Json.Decoded<UserResponse> {
         val res = call(authReq("v1/users/$id").build())
-        return JSON.decodeFromString(res)
+        return Json.decode(res)
     }
 
-    suspend fun artist(id: String): ArtistResponse {
+    suspend fun artist(id: String): Json.Decoded<ArtistResponse> {
         val res = call(authReq("v2/artist/$id").build())
-        return JSON.decodeFromString(res)
+        return Json.decode(res)
     }
 
-    suspend fun pages(id:String): PagesResponse {
-        val res = call(authReq("v1/pages/$id").build())
-        return JSON.decodeFromString(res)
+    suspend fun album(id: String): Json.Decoded<V1PagesResponse> {
+        val res = call(authReq("v1/pages/album", mapOf("albumId" to id)).build())
+        return Json.decode(res)
+    }
+
+    suspend fun mix(id: String): Json.Decoded<V1PagesResponse> {
+        val res = call(authReq("v1/pages/mix", mapOf("mixId" to id)).build())
+        return Json.decode(res)
+    }
+
+    suspend fun playlist(id: String): Json.Decoded<PlaylistResponse> {
+        val res = call(authReq("v2/user-playlists/$id").build())
+        return Json.decode(res)
+    }
+
+    suspend fun playlistItems(id: String, offset: String): Json.Decoded<PlaylistResponse.Items> {
+        val res = call(
+            authReq(
+                "v1/playlists/$id/items",
+                mapOf("offset" to offset, "limit" to "50")
+            ).build()
+        )
+        return Json.decode(res)
+    }
+
+    suspend fun v1Page(
+        id: String,
+        params: Map<String, String> = mapOf(),
+    ): Json.Decoded<V1PagesResponse> {
+        val res = call(authReq("v1/$id", params).build())
+        return Json.decode(res)
     }
 }

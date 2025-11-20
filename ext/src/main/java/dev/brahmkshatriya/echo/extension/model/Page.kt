@@ -24,7 +24,7 @@ data class Page (
 
     @Serializable
     data class Items(
-        val type: String? = null,
+        val type: ItemsType? = null,
 
         @SerialName("moduleId")
         val moduleID: String? = null,
@@ -36,6 +36,11 @@ data class Page (
         val items: List<PageItem>? = null,
         val subtitle: String? = null,
     )
+
+    @Serializable
+    enum class ItemsType {
+        HORIZONTAL_LIST, TRACK_LIST, SHORTCUT_LIST, ARTIST_TRACK_CREDITS_CARD
+    }
 
     @Serializable
     data class PageItem(
