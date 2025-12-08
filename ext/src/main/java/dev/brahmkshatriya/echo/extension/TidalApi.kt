@@ -47,7 +47,6 @@ class TidalApi {
             .header("x-tidal-client-version", version)
             .header("x-tidal-token", clientId)
 
-        accessToken?.let { request.header("Authorization", "Bearer $it") }
         return request
     }
 
@@ -159,7 +158,9 @@ class TidalApi {
     }
 
     suspend fun artist(id: String): Json.Decoded<ArtistResponse> {
-        val res = call(authReq("v2/artist/$id").build())
+        val req = if (refreshToken == null) request("v2/artist/$id")
+        else authReq("v2/artist/$id")
+        val res = call(req.build())
         return Json.decode(res)
     }
 
@@ -173,8 +174,13 @@ class TidalApi {
         return Json.decode(res)
     }
 
-    suspend fun playlist(id: String): Json.Decoded<PlaylistResponse> {
+    suspend fun userPlaylist(id: String): Json.Decoded<PlaylistResponse> {
         val res = call(authReq("v2/user-playlists/$id").build())
+        return Json.decode(res)
+    }
+
+    suspend fun playlist(id: String): Json.Decoded<Item> {
+        val res = call(authReq("v1/playlists/$id").build())
         return Json.decode(res)
     }
 

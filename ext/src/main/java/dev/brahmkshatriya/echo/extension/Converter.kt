@@ -170,6 +170,7 @@ fun Page.Items.toShelves(size: ImageSize): Shelf? {
         )
 
         Page.ItemsType.SHORTCUT_LIST -> null
+        Page.ItemsType.LINKS_LIST -> null
         null -> null
     }
 }
@@ -180,6 +181,7 @@ fun Page.PageItem.toMediaItem(size: ImageSize): EchoMediaItem {
         "PLAYLIST" -> data.toPlaylist(size)
         "ALBUM" -> data.toAlbum(size)
         "TRACK" -> data.toTrack(size, false)
+        "ARTIST" -> data.toArtist(size)
         else -> throw Exception("Unknown media item type: $type")
     }
 }

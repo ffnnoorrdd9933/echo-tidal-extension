@@ -39,7 +39,7 @@ data class Page (
 
     @Serializable
     enum class ItemsType {
-        HORIZONTAL_LIST, TRACK_LIST, SHORTCUT_LIST, ARTIST_TRACK_CREDITS_CARD
+        HORIZONTAL_LIST, TRACK_LIST, SHORTCUT_LIST, ARTIST_TRACK_CREDITS_CARD, LINKS_LIST
     }
 
     @Serializable

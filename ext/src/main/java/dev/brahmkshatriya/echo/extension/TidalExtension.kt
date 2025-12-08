@@ -30,9 +30,11 @@ import dev.brahmkshatriya.echo.common.models.Streamable.Media.Companion.toServer
 import dev.brahmkshatriya.echo.common.models.Tab
 import dev.brahmkshatriya.echo.common.models.Track
 import dev.brahmkshatriya.echo.common.models.User
+import dev.brahmkshatriya.echo.common.settings.SettingSlider
 import dev.brahmkshatriya.echo.common.settings.SettingSwitch
 import dev.brahmkshatriya.echo.common.settings.SettingTextInput
 import dev.brahmkshatriya.echo.common.settings.Settings
+import dev.brahmkshatriya.echo.extension.model.ArtistResponse
 import dev.brahmkshatriya.echo.extension.model.ImageSize
 import dev.brahmkshatriya.echo.extension.model.TokenResponse
 import dev.brahmkshatriya.echo.extension.model.V1PagesResponse
@@ -52,6 +54,15 @@ class TidalExtension : ExtensionClient, HomeFeedClient, SearchFeedClient, LoginC
             "hiFiApi",
             "Base URL for HiFi API, leave empty to auto fetch a working one (will make it slower)",
             ""
+        ),
+        SettingSlider(
+            "DASH Port",
+            "dashPort",
+            "Port for DASH streaming (only for advanced users running a local proxy)",
+            6969,
+            0,
+            65535,
+            1
         )
     )
 
@@ -62,10 +73,11 @@ class TidalExtension : ExtensionClient, HomeFeedClient, SearchFeedClient, LoginC
 
     val only320 get() = setting.getBoolean("only320") ?: false
     val hiFiUrl get() = setting.getString("hiFiApi")
+    val port get() = setting.getInt("dashPort") ?: 6969
 
     val imageSize by lazy { ImageSize.MEDIUM }
     val api by lazy { TidalApi() }
-    val hiFiApi by lazy { HiFiApi { hiFiUrl } }
+    val hiFiApi by lazy { HiFiApi ({ hiFiUrl }, { port }) }
 
     override val webViewRequest = object : WebViewRequest.Evaluate<List<User>> {
         override val javascriptToEvaluateOnPageStart = """
@@ -126,16 +138,16 @@ class TidalExtension : ExtensionClient, HomeFeedClient, SearchFeedClient, LoginC
             }
             Feed(tabs) { tab ->
                 when (tab?.id) {
-                    "TRACKS" -> hiFiApi.searchTrack(query).value.items!!
+                    "TRACKS" -> hiFiApi.searchTrack(query).value.data?.items!!
                         .toShelves(tab.id, imageSize).toFeedData()
 
-                    "ARTISTS" -> hiFiApi.searchArtist(query).value.first().artists!!.items!!
+                    "ARTISTS" -> hiFiApi.searchArtist(query).value.data!!.artists!!.items!!
                         .toShelves(tab.id, imageSize).toFeedData()
 
-                    "ALBUMS" -> hiFiApi.searchAlbum(query).value.albums!!.items!!
+                    "ALBUMS" -> hiFiApi.searchAlbum(query).value.data!!.albums!!.items!!
                         .toShelves(tab.id, imageSize).toFeedData()
 
-                    "PLAYLISTS" -> hiFiApi.searchPlaylist(query).value.playlists!!.items!!
+                    "PLAYLISTS" -> hiFiApi.searchPlaylist(query).value.data!!.playlists!!.items!!
                         .toShelves(tab.id, imageSize).toFeedData()
 
                     else -> throw Exception("Unknown tab id: ${tab?.id}")
@@ -252,7 +264,10 @@ class TidalExtension : ExtensionClient, HomeFeedClient, SearchFeedClient, LoginC
     }
 
     override suspend fun loadPlaylist(playlist: Playlist): Playlist {
-        val decoded = api.playlist(playlist.id).value
+        if (api.refreshToken == null)
+            return api.playlist(playlist.id).value.toPlaylist(ImageSize.XLARGE)
+
+        val decoded = api.userPlaylist(playlist.id).value
         return decoded.playlist!!.toPlaylist(ImageSize.XLARGE).copy(
             isFollowable = true,
             extras = mapOf(
@@ -280,7 +295,7 @@ class TidalExtension : ExtensionClient, HomeFeedClient, SearchFeedClient, LoginC
         val artistItem = decoded.value
         val following = artistItem.item?.following.toString()
         val followers = artistItem.header?.followersAmount.toString()
-        return artistItem.item!!.data!!.toArtist(imageSize).copy(
+        return artistItem.item!!.data!!.toArtist(ImageSize.XLARGE).copy(
             bio = artistItem.header?.biography?.text,
             extras = mapOf(
                 "json" to decoded.json,
@@ -292,18 +307,11 @@ class TidalExtension : ExtensionClient, HomeFeedClient, SearchFeedClient, LoginC
 
     override suspend fun loadFeed(artist: Artist): Feed<Shelf> {
         val json = artist.extras["json"]!!
-        val decoded = Json.impl.decodeFromString<V1PagesResponse>(json)
-        return decoded.toShelves(api, imageSize).toFeed()
+        val decoded = Json.impl.decodeFromString<ArtistResponse>(json)
+        return decoded.items!!.mapNotNull { it.toShelves(imageSize) }.toFeed()
     }
 
-    override suspend fun loadRadio(radio: Radio): Radio {
-        val decoded = api.mix(radio.id)
-        val mix = decoded.value.rows!![0].modules!![0].mix!!
-        return mix.toRadio().copy(
-            extras = mapOf("json" to decoded.json)
-        )
-    }
-
+    override suspend fun loadRadio(radio: Radio) = radio
     override suspend fun loadTracks(radio: Radio): Feed<Track> {
         val json = radio.extras["json"]!!
         val decoded = Json.impl.decodeFromString<V1PagesResponse>(json)
@@ -315,7 +323,7 @@ class TidalExtension : ExtensionClient, HomeFeedClient, SearchFeedClient, LoginC
     override suspend fun radio(
         item: EchoMediaItem, context: EchoMediaItem?,
     ): Radio {
-        return when (item) {
+        val radio = when (item) {
             is Track -> Radio(
                 id = item.extras["trackMix"]!!,
                 title = "${item.title} Radio",
@@ -328,5 +336,10 @@ class TidalExtension : ExtensionClient, HomeFeedClient, SearchFeedClient, LoginC
 
             else -> throw IllegalArgumentException(item::javaClass.name)
         }
+        val decoded = api.mix(radio.id)
+        val mix = decoded.value.rows!![0].modules!![0].mix!!
+        return mix.toRadio().copy(
+            extras = mapOf("json" to decoded.json)
+        )
     }
 }

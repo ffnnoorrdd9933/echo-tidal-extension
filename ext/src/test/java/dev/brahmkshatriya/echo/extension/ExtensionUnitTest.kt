@@ -1,14 +1,18 @@
 package dev.brahmkshatriya.echo.extension
 
 import dev.brahmkshatriya.echo.common.clients.AlbumClient
+import dev.brahmkshatriya.echo.common.clients.ArtistClient
 import dev.brahmkshatriya.echo.common.clients.ExtensionClient
 import dev.brahmkshatriya.echo.common.clients.HomeFeedClient
 import dev.brahmkshatriya.echo.common.clients.LoginClient
+import dev.brahmkshatriya.echo.common.clients.PlaylistClient
 import dev.brahmkshatriya.echo.common.clients.RadioClient
 import dev.brahmkshatriya.echo.common.clients.SearchFeedClient
 import dev.brahmkshatriya.echo.common.clients.TrackClient
+import dev.brahmkshatriya.echo.common.models.Artist
 import dev.brahmkshatriya.echo.common.models.Feed.Companion.loadAll
 import dev.brahmkshatriya.echo.common.models.Feed.Companion.pagedDataOfFirst
+import dev.brahmkshatriya.echo.common.models.Playlist
 import dev.brahmkshatriya.echo.common.models.Shelf
 import dev.brahmkshatriya.echo.common.models.Track
 import dev.brahmkshatriya.echo.common.models.User
@@ -17,6 +21,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.newSingleThreadContext
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.resetMain
@@ -32,7 +37,7 @@ class ExtensionUnitTest {
     private val extension: ExtensionClient = TidalExtension()
     private val searchQuery = "Zomboy Born To Survive"
 
-//    private val user = User(
+    //    private val user = User(
 //        "", "Test User", extras = mapOf(
 //            "refreshToken" to ""
 //        )
@@ -109,6 +114,7 @@ class ExtensionUnitTest {
                 println(stream)
             }.also { println("time : $it") }
         }
+        delay(60000)
     }
 
     @Test
@@ -164,6 +170,26 @@ class ExtensionUnitTest {
         }
     }
 
+    @Test
+    fun testPlaylist() = testIn("Testing Playlist") {
+        if (extension !is PlaylistClient) error("PlaylistClient is not implemented")
+        val playlist = extension.loadPlaylist(
+            Playlist("2a943025-3673-4599-b62b-12c9614c0c05", "", false)
+        )
+        println(playlist)
+        val tracks = extension.loadTracks(playlist).loadAll()
+        tracks.forEach {
+            println(it)
+        }
+    }
+
+    @Test
+    fun testArtistGet() = testIn("Testing Artist Get") {
+        if (extension !is ArtistClient) error("ArtistClient is not implemented")
+        val artist = extension.loadArtist(Artist("5816942", ""))
+        println(artist)
+        extension.loadFeed(artist)
+    }
 
     // Test Setup
     private val mainThreadSurrogate = newSingleThreadContext("UI thread")
