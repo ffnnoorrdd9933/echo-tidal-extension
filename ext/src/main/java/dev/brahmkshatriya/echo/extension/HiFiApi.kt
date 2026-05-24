@@ -126,8 +126,12 @@ class HiFiApi(
         return Base64.decode(base64).toString(Charsets.UTF_8)
     }
 
+    // ИСПРАВЛЕННЫЙ БЛОК: Добавлена проверка на XML (DASH)
     suspend fun stream(id: String, quality: String): String {
         val res = track(id, quality)
+        if (res.trimStart().startsWith("<")) {
+            return streamDash(id, quality)
+        }
         val decoded = Json.decode<Decoded>(res).value
         return decoded.urls!!.random()
     }
