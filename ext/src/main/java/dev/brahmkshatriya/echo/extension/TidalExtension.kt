@@ -39,32 +39,118 @@ import dev.brahmkshatriya.echo.extension.model.ImageSize
 import dev.brahmkshatriya.echo.extension.model.TokenResponse
 import dev.brahmkshatriya.echo.extension.model.V1PagesResponse
 
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
+import java.lang.StringBuilder
+
 class TidalExtension : ExtensionClient, HomeFeedClient, SearchFeedClient, LoginClient.WebView,
     TrackClient, AlbumClient, PlaylistClient, ArtistClient, RadioClient {
 
-    override suspend fun getSettingItems() = listOf(
-        SettingSwitch(
-            "Always use 320kbps",
-            "only320",
-            "For streaming, always use 320kbps quality",
-            false
-        ),
-        SettingTextInput(
-            "HiFi API",
-            "hiFiApi",
-            "Base URL for HiFi API, leave empty to auto fetch a working one (will make it slower)",
-            ""
-        ),
-        SettingSlider(
-            "DASH Port",
-            "dashPort",
-            "Port for DASH streaming (only for advanced users running a local proxy)",
-            6969,
-            0,
-            65535,
-            1
+    // Вспомогательный менеджер для управления инстансами
+    object InstanceManager {
+        private const val INSTANCES_URL = "https://monochrome-khaki.vercel.app/instances"
+        const val FALLBACK_URL = "https://hifi-api-bffw.onrender.com"
+        
+        @Volatile
+        var cachedBestUrl: String = FALLBACK_URL
+            private set
+
+        // Синхронный/блокирующий запрос для вызова из фоновых потоков или построения UI настроек
+        fun fetchInstancesSync(): List<Pair<String, Int>> {
+            val list = mutableListOf<Pair<String, Int>>()
+            try {
+                val url = URL(INSTANCES_URL)
+                val connection = url.openConnection() as HttpURLConnection
+                connection.connectTimeout = 4000
+                connection.readTimeout = 4000
+                connection.setRequestProperty("User-Agent", "Echo-Tidal-Plugin/1.0")
+                
+                if (connection.responseCode == 200) {
+                    val text = connection.inputStream.bufferedReader().use { it.readText() }
+                    val json = JSONObject(text)
+                    val instances = json.getJSONArray("instances")
+                    
+                    var bestUrl: String? = null
+                    var lowestPing = Int.MAX_VALUE
+
+                    for (i in 0 until instances.length()) {
+                        val inst = instances.getJSONObject(i)
+                        if (inst.getBoolean("ok")) {
+                            val ms = inst.optInt("ms", Int.MAX_VALUE)
+                            val instUrl = inst.getString("url")
+                            list.add(Pair(instUrl, ms))
+                            
+                            if (ms < lowestPing) {
+                                lowestPing = ms
+                                bestUrl = instUrl
+                            }
+                        }
+                    }
+                    list.sortBy { it.second }
+                    if (bestUrl != null) {
+                        cachedBestUrl = bestUrl
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+            return list
+        }
+
+        // Асинхронное обновление в отдельном потоке (чтобы не фризить плеер при воспроизведении)
+        fun updateCacheAsync() {
+            Thread { fetchInstancesSync() }.start()
+        }
+    }
+
+    override suspend fun getSettingItems(): List<Any> {
+        // Запрашиваем состояние серверов прямо при открытии экрана настроек
+        val healthyInstances = withContext(Dispatchers.IO) {
+            InstanceManager.fetchInstancesSync()
+        }
+
+        val descriptionBuilder = StringBuilder(
+            "Base URL для HiFi API. Оставьте пустым или напишите 'auto' для автоматического выбора самого быстрого сервера.\n\n"
         )
-    )
+
+        if (healthyInstances.isEmpty()) {
+            descriptionBuilder.append("⚠️ Не удалось обновить статус. Будет использован fallback: ${InstanceManager.FALLBACK_URL}")
+        } else {
+            descriptionBuilder.append("🟢 Доступные живые инстансы (быстрые вверху):\n")
+            healthyInstances.forEach { (url, ms) ->
+                val cleanUrl = url.replace("https://", "")
+                descriptionBuilder.append("• $cleanUrl ($ms ms)\n")
+            }
+            descriptionBuilder.append("\nВы можете скопировать любой адрес выше и вставить его в поле ввода, чтобы зафиксировать вручную.")
+        }
+
+        return listOf(
+            SettingSwitch(
+                "Always use 320kbps",
+                "only320",
+                "For streaming, always use 320kbps quality",
+                false
+            ),
+            SettingTextInput(
+                "HiFi API",
+                "hiFiApi",
+                descriptionBuilder.toString(),
+                "auto"
+            ),
+            SettingSlider(
+                "DASH Port",
+                "dashPort",
+                "Port for DASH streaming (only for advanced users running a local proxy)",
+                6969,
+                0,
+                65535,
+                1
+            )
+        )
+    }
 
     private lateinit var setting: Settings
     override fun setSettings(settings: Settings) {
@@ -72,7 +158,22 @@ class TidalExtension : ExtensionClient, HomeFeedClient, SearchFeedClient, LoginC
     }
 
     val only320 get() = setting.getBoolean("only320") ?: false
-    val hiFiUrl get() = setting.getString("hiFiApi")
+    
+    // Умный геттер: если выбрано "auto" или пусто — берем лучший из кэша и раз в 10 минут обновляем пул в фоне
+    private var lastAutoRefresh = 0L
+    val hiFiUrl get() : String {
+        val userUrl = setting.getString("hiFiApi")
+        if (userUrl.isNullOrEmpty() || userUrl.equals("auto", ignoreCase = true)) {
+            val now = System.currentTimeMillis()
+            if (now - lastAutoRefresh > 10 * 60 * 1000) { // индицируем фоновый сбор раз в 10 минут
+                lastAutoRefresh = now
+                InstanceManager.updateCacheAsync()
+            }
+            return InstanceManager.cachedBestUrl
+        }
+        return userUrl
+    }
+    
     val port get() = setting.getInt("dashPort") ?: 6969
 
     val imageSize by lazy { ImageSize.MEDIUM }
@@ -250,9 +351,9 @@ class TidalExtension : ExtensionClient, HomeFeedClient, SearchFeedClient, LoginC
     override suspend fun loadAlbum(album: Album): Album {
         val decoded = api.album(album.id)
         val rows = decoded.value.rows!!
-        val album = rows[0].modules!![0].album!!
-        return album.toAlbum(ImageSize.XLARGE).copy(
-            description = album.description,
+        val albumData = rows[0].modules!![0].album!!
+        return albumData.toAlbum(ImageSize.XLARGE).copy(
+            description = albumData.description,
             extras = mapOf(
                 "json" to decoded.json
             )
