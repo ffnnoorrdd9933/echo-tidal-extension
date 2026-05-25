@@ -206,6 +206,7 @@ class TidalExtension : ExtensionClient, HomeFeedClient, SearchFeedClient, LoginC
             .copy(streamables = servers + videoCover)
     }
 
+    // ИСПРАВЛЕННЫЙ БЛОК: Динамическое определение DASH на этапе загрузки потока
     override suspend fun loadStreamableMedia(
         streamable: Streamable, isDownload: Boolean,
     ) = when (streamable.type) {
@@ -219,9 +220,18 @@ class TidalExtension : ExtensionClient, HomeFeedClient, SearchFeedClient, LoginC
             val trackId = streamable.extras["id"] ?: error("Track Id not found")
             val quality = streamable.extras["quality"] ?: error("Quality not found")
             val isDash = streamable.extras["dash"] == "true"
-            if (!isDash) hiFiApi.stream(trackId, quality).toServerMedia()
-            else hiFiApi.streamDash(trackId, quality)
-                .toServerMedia(type = Streamable.SourceType.DASH)
+
+            if (isDash) {
+                hiFiApi.streamDash(trackId, quality)
+                    .toServerMedia(type = Streamable.SourceType.DASH)
+            } else {
+                val url = hiFiApi.stream(trackId, quality)
+                if (url.contains("/manifest?id=")) {
+                    url.toServerMedia(type = Streamable.SourceType.DASH)
+                } else {
+                    url.toServerMedia()
+                }
+            }
         }
 
         Streamable.MediaType.Subtitle -> throw IllegalStateException()
