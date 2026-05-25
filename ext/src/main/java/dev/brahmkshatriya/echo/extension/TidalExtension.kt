@@ -49,10 +49,9 @@ import java.lang.StringBuilder
 class TidalExtension : ExtensionClient, HomeFeedClient, SearchFeedClient, LoginClient.WebView,
     TrackClient, AlbumClient, PlaylistClient, ArtistClient, RadioClient {
 
-    // Менеджер инстансов на чистом Kotlin (без org.json)
     object InstanceManager {
         private const val INSTANCES_URL = "https://monochrome-khaki.vercel.app/instances"
-        const val FALLBACK_URL = "https://hifi-api-bffw.onrender.com"
+        const val FALLBACK_URL = "https://api.monochrome.tf"
         
         @Volatile
         var cachedBestUrl: String = FALLBACK_URL
@@ -70,7 +69,6 @@ class TidalExtension : ExtensionClient, HomeFeedClient, SearchFeedClient, LoginC
                 if (connection.responseCode == 200) {
                     val text = connection.inputStream.bufferedReader().use { it.readText() }
                     
-                    // Регулярные выражения для безопасного разбора JSON без внешних библиотек
                     val objectRegex = """\{([^}]+)\}""".toRegex()
                     val urlRegex = """"url"\s*:\s*"([^"]+)"""".toRegex()
                     val okRegex = """"ok"\s*:\s*(true|false)""".toRegex()
@@ -118,25 +116,23 @@ class TidalExtension : ExtensionClient, HomeFeedClient, SearchFeedClient, LoginC
         }
     }
 
-    // Исправлено: возвращаемый тип строго List<Setting>
     override suspend fun getSettingItems(): List<Setting> {
         val healthyInstances = withContext(Dispatchers.IO) {
             InstanceManager.fetchInstancesSync()
         }
 
         val descriptionBuilder = StringBuilder(
-            "Base URL для HiFi API. Оставьте пустым или напишите 'auto' для автоматического выбора самого быстрого сервера.\n\n"
+            "Напишите 'auto', чтобы плагин сам переключался на самый быстрый сервер.\n\n"
         )
 
         if (healthyInstances.isEmpty()) {
-            descriptionBuilder.append("⚠️ Не удалось обновить статус. Будет использован fallback: ${InstanceManager.FALLBACK_URL}")
+            descriptionBuilder.append("⚠️ Ошибка сети. Используется: ${InstanceManager.FALLBACK_URL}")
         } else {
-            descriptionBuilder.append("🟢 Доступные живые инстансы (быстрые вверху):\n")
-            healthyInstances.forEach { (url, ms) ->
+            descriptionBuilder.append("🟢 Рабочие серверы сейчас:\n")
+            healthyInstances.take(5).forEach { (url, ms) ->
                 val cleanUrl = url.replace("https://", "")
                 descriptionBuilder.append("• $cleanUrl ($ms ms)\n")
             }
-            descriptionBuilder.append("\nВы можете скопировать любой адрес выше и вставить его в поле ввода, чтобы зафиксировать вручную.")
         }
 
         return listOf(
@@ -172,8 +168,12 @@ class TidalExtension : ExtensionClient, HomeFeedClient, SearchFeedClient, LoginC
     val only320 get() = setting.getBoolean("only320") ?: false
     
     private var lastAutoRefresh = 0L
+    
+    // Обновленная и строгая логика определения адреса
     val hiFiUrl get() : String {
-        val userUrl = setting.getString("hiFiApi")
+        val userUrl = setting.getString("hiFiApi")?.trim()
+        
+        // 1. Если поле пустое или auto - ищем лучший инстанс
         if (userUrl.isNullOrEmpty() || userUrl.equals("auto", ignoreCase = true)) {
             val now = System.currentTimeMillis()
             if (now - lastAutoRefresh > 10 * 60 * 1000) {
@@ -182,7 +182,9 @@ class TidalExtension : ExtensionClient, HomeFeedClient, SearchFeedClient, LoginC
             }
             return InstanceManager.cachedBestUrl
         }
-        return userUrl
+        
+        // 2. Если пользователь ввел адрес руками (например api.monochrome.tf)
+        return if (!userUrl.startsWith("http")) "https://$userUrl" else userUrl
     }
     
     val port get() = setting.getInt("dashPort") ?: 6969
