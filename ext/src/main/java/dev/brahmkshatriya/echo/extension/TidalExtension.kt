@@ -30,6 +30,7 @@ import dev.brahmkshatriya.echo.common.models.Streamable.Media.Companion.toServer
 import dev.brahmkshatriya.echo.common.models.Tab
 import dev.brahmkshatriya.echo.common.models.Track
 import dev.brahmkshatriya.echo.common.models.User
+import dev.brahmkshatriya.echo.common.settings.Setting
 import dev.brahmkshatriya.echo.common.settings.SettingSlider
 import dev.brahmkshatriya.echo.common.settings.SettingSwitch
 import dev.brahmkshatriya.echo.common.settings.SettingTextInput
@@ -41,7 +42,6 @@ import dev.brahmkshatriya.echo.extension.model.V1PagesResponse
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 import java.lang.StringBuilder
@@ -49,7 +49,7 @@ import java.lang.StringBuilder
 class TidalExtension : ExtensionClient, HomeFeedClient, SearchFeedClient, LoginClient.WebView,
     TrackClient, AlbumClient, PlaylistClient, ArtistClient, RadioClient {
 
-    // Вспомогательный менеджер для управления инстансами
+    // Менеджер инстансов на чистом Kotlin (без org.json)
     object InstanceManager {
         private const val INSTANCES_URL = "https://monochrome-khaki.vercel.app/instances"
         const val FALLBACK_URL = "https://hifi-api-bffw.onrender.com"
@@ -58,7 +58,6 @@ class TidalExtension : ExtensionClient, HomeFeedClient, SearchFeedClient, LoginC
         var cachedBestUrl: String = FALLBACK_URL
             private set
 
-        // Синхронный/блокирующий запрос для вызова из фоновых потоков или построения UI настроек
         fun fetchInstancesSync(): List<Pair<String, Int>> {
             val list = mutableListOf<Pair<String, Int>>()
             try {
@@ -70,22 +69,36 @@ class TidalExtension : ExtensionClient, HomeFeedClient, SearchFeedClient, LoginC
                 
                 if (connection.responseCode == 200) {
                     val text = connection.inputStream.bufferedReader().use { it.readText() }
-                    val json = JSONObject(text)
-                    val instances = json.getJSONArray("instances")
                     
+                    // Регулярные выражения для безопасного разбора JSON без внешних библиотек
+                    val objectRegex = """\{([^}]+)\}""".toRegex()
+                    val urlRegex = """"url"\s*:\s*"([^"]+)"""".toRegex()
+                    val okRegex = """"ok"\s*:\s*(true|false)""".toRegex()
+                    val msRegex = """"ms"\s*:\s*(\d+)""".toRegex()
+
+                    val matches = objectRegex.findAll(text)
                     var bestUrl: String? = null
                     var lowestPing = Int.MAX_VALUE
 
-                    for (i in 0 until instances.length()) {
-                        val inst = instances.getJSONObject(i)
-                        if (inst.getBoolean("ok")) {
-                            val ms = inst.optInt("ms", Int.MAX_VALUE)
-                            val instUrl = inst.getString("url")
-                            list.add(Pair(instUrl, ms))
+                    for (match in matches) {
+                        val objStr = match.groupValues[1]
+                        val okMatch = okRegex.find(objStr)
+                        val isOk = okMatch?.groupValues?.get(1)?.toBoolean() == true
+                        
+                        if (isOk) {
+                            val urlMatch = urlRegex.find(objStr)
+                            val msMatch = msRegex.find(objStr)
                             
-                            if (ms < lowestPing) {
-                                lowestPing = ms
-                                bestUrl = instUrl
+                            val instUrl = urlMatch?.groupValues?.get(1)
+                            val ms = msMatch?.groupValues?.get(1)?.toIntOrNull() ?: Int.MAX_VALUE
+                            
+                            if (instUrl != null) {
+                                list.add(Pair(instUrl, ms))
+                                
+                                if (ms < lowestPing) {
+                                    lowestPing = ms
+                                    bestUrl = instUrl
+                                }
                             }
                         }
                     }
@@ -100,14 +113,13 @@ class TidalExtension : ExtensionClient, HomeFeedClient, SearchFeedClient, LoginC
             return list
         }
 
-        // Асинхронное обновление в отдельном потоке (чтобы не фризить плеер при воспроизведении)
         fun updateCacheAsync() {
             Thread { fetchInstancesSync() }.start()
         }
     }
 
-    override suspend fun getSettingItems(): List<Any> {
-        // Запрашиваем состояние серверов прямо при открытии экрана настроек
+    // Исправлено: возвращаемый тип строго List<Setting>
+    override suspend fun getSettingItems(): List<Setting> {
         val healthyInstances = withContext(Dispatchers.IO) {
             InstanceManager.fetchInstancesSync()
         }
@@ -159,13 +171,12 @@ class TidalExtension : ExtensionClient, HomeFeedClient, SearchFeedClient, LoginC
 
     val only320 get() = setting.getBoolean("only320") ?: false
     
-    // Умный геттер: если выбрано "auto" или пусто — берем лучший из кэша и раз в 10 минут обновляем пул в фоне
     private var lastAutoRefresh = 0L
     val hiFiUrl get() : String {
         val userUrl = setting.getString("hiFiApi")
         if (userUrl.isNullOrEmpty() || userUrl.equals("auto", ignoreCase = true)) {
             val now = System.currentTimeMillis()
-            if (now - lastAutoRefresh > 10 * 60 * 1000) { // индицируем фоновый сбор раз в 10 минут
+            if (now - lastAutoRefresh > 10 * 60 * 1000) {
                 lastAutoRefresh = now
                 InstanceManager.updateCacheAsync()
             }
@@ -307,7 +318,6 @@ class TidalExtension : ExtensionClient, HomeFeedClient, SearchFeedClient, LoginC
             .copy(streamables = servers + videoCover)
     }
 
-    // ИСПРАВЛЕННЫЙ БЛОК: Динамическое определение DASH на этапе загрузки потока
     override suspend fun loadStreamableMedia(
         streamable: Streamable, isDownload: Boolean,
     ) = when (streamable.type) {
